@@ -1,0 +1,23 @@
+{
+   "executable_path" : "./spideroak_inotify_dir_watcher",
+   "test_directory"  : "test_dir",
+   "verbose"         : 1,
+   "top_level_directories" : [
+       { "name" : "top", "width" : 3, "height" : 3 },
+       { "name" : "pandora" }
+   ],
+   "exclude_directories" : [
+   ],  
+   "tests"           : [
+        { 
+           "name" : "add_tree", 
+           "tree_name" : "test_tree", 
+           "width" : 5, 
+           "height" : 5 
+        },
+        {
+           "name" : "move_tree",
+           "tree_name" : "test_tree"
+        }
+    ]
+}

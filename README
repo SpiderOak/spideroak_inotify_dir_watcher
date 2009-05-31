@@ -1,1 +1,56 @@
 spideroak_inotify_dir_watcher
+
+This program is what we at SpiderOak call a 'dir watcher'. It uses The Linux inotify API to get low level notification of changes in the filesystem. We have other dir watchers for Windows (spideroak_windows_dir_watcher) and OS X (spideroak_osx_fsevents).
+
+The goals of the dir watchers are:
+* To recognize filesystem events in an efficient way
+* To have a small footprint: using as little memory and processor time as possible
+* To be robust 
+ 
+So these dir watchers are very simple programs, keeping the complication in the Python program which uses them. 
+
+This program is launched by the SpiderOak back end program (the 'spider'). It reads a configuration file listing directories to by watched. And it reads an 'exclude' file (which may be empty) listing directories to be ignored. When it detects an event (or events), it writes a simple notification file to a specified directory.
+
+To build the executable you can use build_debug.bash or build_release.bash. We have also included build_valgrind.bash whichwe used to test with valgrind.
+
+This dir_watcher uses an sqlite database to track the relationship between inotify 'watchers' and directories watched, known as 'wd'. We have included an indepenant test if this code wiht its own build.
+
+We have included the python program launch_watcher.py for your convenience in testing. It launches the watcher the same way our spider program does.
+
+Here's a sample test run:
+
+The config file is test_inotiry.config. It contains a single line:
+
+    /home/dougfort/test_directory
+
+The exclude file is empty (created with touch)
+
+The notification directory is ~/notification
+
+The test is run like this:
+
+python launch_watcher.py \
+    ./spideroak_inotiry_dir_watcher \ 
+    /home/dougfort/test_inotify.config \
+    /home/dougfort/test_inotify.exclude \
+    /home/dougfort/notification
+
+Note the use of full path names, this is the way the spider runs it.
+
+When I remove a file from the desktop, we see some events:
+
+$ ls ~/notification/
+00000001.txt
+
+$ cat ~/notification/00000001.txt 
+/home/dougfort/test_directory
+
+Note that the notification is simply the directory where the event occurred. Our goal is to keep the dir watcher as simple as possible. Of course, this is open source, if you want something more complicated go for it. (Please see our LICENSE).
+
+The dir watcher reports errors and events to the system log. You can grep for the tag 'SpiderOak'.
+
+This is part of SpiderOak
+http://SpiderOak.com
+
+contact us at ___@spideroak.com
+
