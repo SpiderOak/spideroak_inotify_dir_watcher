@@ -62,7 +62,12 @@ SUB_DIR_NODE_P list_sub_dirs(const char * path) {
          exit(-1);
       }
 
-      if (dir_entry_p->d_type & DT_DIR) {
+      // 2009-12-23 dougfort -- a patch supplied by SpiderOak user gnemesure:
+      // "The problem is the assumption that the directory types returned by 
+      // readdir  are single bits, which is not the case. In fact DT_DIR has 
+      // value of 4, and  DT_SOCKET has a value of 12, so the type must be 
+      // tested for equality, not  masked".  
+      if (dir_entry_p->d_type == DT_DIR) {
          
          if (0 == strcmp(dir_entry_p->d_name, ".")) {
             continue;
