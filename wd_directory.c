@@ -11,6 +11,7 @@
 #include <sqlite3.h>
 
 #include "wd_directory.h"
+#include "error_text.h"
 
 static const char * database_path = "/tmp/spideroak_inotify_db";
 
@@ -59,12 +60,16 @@ static void execute_sql(const char * format_p, ...) {
    error_message_p = NULL;
    result = sqlite3_exec(sqlite3_p, sql_p, NULL, NULL, &error_message_p); 
    if (result != SQLITE_OK) {
+      error_file = fopen(error_path, "w");
       syslog(LOG_ERR, "%s %s", sqlite3_errmsg(sqlite3_p), sql_p);
+      fprintf(error_file, "%s %s\n", sqlite3_errmsg(sqlite3_p), sql_p);
       if (error_message_p != NULL) {
          syslog(LOG_ERR, "SQL error %s", error_message_p);
+         fprintf(error_file, "SQL error %s\n", error_message_p);
          sqlite3_free(error_message_p);
          error_message_p = NULL;
       }
+      fclose(error_file);
       exit(-1);
    }
 
@@ -95,12 +100,21 @@ static sqlite3_stmt * prepare_sql_statement(const char * format_p, ...) {
    sqlite3_free(sql_p);
 
    if (result != SQLITE_OK) {
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, 
+         "sqlite3_prepare %s %s\n", 
+         sqlite3_errmsg(sqlite3_p), 
+         sql_p
+      );
+      fclose(error_file);
       syslog(
          LOG_ERR, 
          "sqlite3_prepare %s %s", 
          sqlite3_errmsg(sqlite3_p), 
          sql_p
       );
+
       sqlite3_close(sqlite3_p);
       exit(-1);
    }
@@ -120,6 +134,9 @@ int wd_directory_initialize(void) {
 
    result = sqlite3_open(database_path, &sqlite3_p);
    if (result != 0) {
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "sqlite3_open %s\n", sqlite3_errmsg(sqlite3_p));
+      fclose(error_file);
       syslog(LOG_ERR, "sqlite3_open %s", sqlite3_errmsg(sqlite3_p));
       sqlite3_close(sqlite3_p);
       exit(-1);
@@ -165,6 +182,9 @@ const char * find_wd_directory(int wd, char * dest_p, size_t max_len) {
          path_p = dest_p; 
          break;
       default:
+         error_file = fopen(error_path, "w");
+         fprintf(error_file, "sqlite3_step %s\n", sqlite3_errmsg(sqlite3_p));
+         fclose(error_file);
          syslog( LOG_ERR, "sqlite3_step %s", sqlite3_errmsg(sqlite3_p));
          sqlite3_close(sqlite3_p);
          exit(-1);
@@ -194,6 +214,9 @@ int find_directory_wd(const char * path_p) {
          result_wd = sqlite3_column_int(statement_p, 0);
          break;
       default:
+         error_file = fopen(error_path, "w");
+         fprintf(error_file, "sqlite3_step %s\n", sqlite3_errmsg(sqlite3_p));
+         fclose(error_file);
          syslog(LOG_ERR, "sqlite3_step %s", sqlite3_errmsg(sqlite3_p));
          sqlite3_close(sqlite3_p);
          exit(-1);
@@ -223,6 +246,9 @@ int find_wd_parent(int wd) {
          result_wd = sqlite3_column_int(statement_p, 0);
          break;
       default:
+         error_file = fopen(error_path, "w");
+         fprintf(error_file, "sqlite3_step %s\n", sqlite3_errmsg(sqlite3_p));
+         fclose(error_file);
          syslog(LOG_ERR, "sqlite3_step %s", sqlite3_errmsg(sqlite3_p));
          sqlite3_close(sqlite3_p);
          exit(-1);
@@ -267,12 +293,18 @@ static WD_LIST_NODE_P find_children(int wd) {
 
             if (NULL == node_p) {
                syslog(LOG_ERR, "unable to calloc WD_LIST_NODE");
+               error_file = fopen(error_path, "w");
+               fprintf(error_file, "unable to calloc WD_LIST_NODE\n");
+               fclose(error_file);
                exit(-1);
             }
 
             node_p->wd = sqlite3_column_int(statement_p, 0);
             break;
          default:
+            error_file = fopen(error_path, "w");
+            fprintf(error_file, "sqlite3_step %s\n", sqlite3_errmsg(sqlite3_p));
+            fclose(error_file);
             syslog(LOG_ERR, "sqlite3_step %s", sqlite3_errmsg(sqlite3_p));
             sqlite3_close(sqlite3_p);
             exit(-1);
@@ -295,6 +327,9 @@ WD_LIST_NODE_P prune_wd_directory(int wd) {
    head_p = calloc(1, sizeof(struct WD_LIST_NODE));
    if (NULL == head_p) {
       syslog(LOG_ERR, "unable to calloc WD_LIST_NODE");
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "unable to calloc WD_LIST_NODE\n");
+      fclose(error_file);
       exit(-1);
    } 
    head_p->wd = wd;  

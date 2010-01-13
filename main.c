@@ -30,6 +30,9 @@
 #define MAX_EXCLUDES 64
 #define MAX_PATH_LEN 4096
 
+char error_path[MAX_PATH_LEN+1];
+FILE * error_file = NULL;
+
 static int alive = 1;
 static int error; // holder for errno
 static int inotify_fd = -1;
@@ -96,6 +99,24 @@ static const char * event_name(uint32_t event_mask) {
 } // event_name
 
 //-----------------------------------------------------------------------------
+static void initialize_error_path(const char * notify_dir_p) {
+//-----------------------------------------------------------------------------
+   int bytes_written;
+
+   bytes_written = snprintf(
+      error_path, 
+      sizeof error_path,
+      "%s/error.txt",
+      notify_dir_p
+   );
+   if (sizeof error_path == bytes_written) {
+      syslog(LOG_ERR, "error path overflow %s", notify_dir_p);
+      exit(1);
+   }
+
+} // initialize_temp_path
+
+//-----------------------------------------------------------------------------
 static void initialize_temp_path(const char * notify_dir_p) {
 //-----------------------------------------------------------------------------
    int bytes_written;
@@ -108,6 +129,9 @@ static void initialize_temp_path(const char * notify_dir_p) {
    );
    if (sizeof temp_path_buffer == bytes_written) {
       syslog(LOG_ERR, "temp path overflow %s", notify_dir_p);
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "temp path overflow %s\n", notify_dir_p);
+      fclose(error_file);
       exit(1);
    }
 
@@ -165,6 +189,15 @@ static int add_watch(int parent_wd, const char * path) {
          error, 
          strerror(error)
       );
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, 
+         "inotify_add_watch %s %d %s\n", 
+         path, 
+         error, 
+         strerror(error)
+      );
+      fclose(error_file);
       exit(2);
    }
 
@@ -175,6 +208,14 @@ static int add_watch(int parent_wd, const char * path) {
          watch_descriptor,
          path
       );
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, 
+         "Unable to add wd_directory %d %s\n",
+         watch_descriptor,
+         path
+      );
+      fclose(error_file);
       exit(3);
    }
 
@@ -191,6 +232,9 @@ static int add_watch(int parent_wd, const char * path) {
       );
       if (chars_stored >= sizeof path_buffer) {
          syslog(LOG_ERR, "path buffer overlow %s", path_buffer);
+         error_file = fopen(error_path, "w");
+         fprintf(error_file, "path buffer overlow %s\n", path_buffer);
+         fclose(error_file);
          exit(4);
       }
       add_watch(watch_descriptor, path_buffer);
@@ -213,6 +257,11 @@ static void load_excludes(const char *exclude_path) {
    if (NULL == exclude_file_p) {
       error = errno;
       syslog(LOG_ERR, "fopen %s %d %s", exclude_path, error, strerror(error));
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, "fopen %s %d %s\n", exclude_path, error, strerror(error)
+      );
+      fclose(error_file);
       exit(5);
    }
 
@@ -221,7 +270,14 @@ static void load_excludes(const char *exclude_path) {
 
       if (ferror(exclude_file_p)) {
          error = errno;
-         syslog(LOG_ERR, "fgets %s %d %s", exclude_path, error, strerror(error));
+         syslog(
+            LOG_ERR, "fgets %s %d %s", exclude_path, error, strerror(error)
+         );
+         error_file = fopen(error_path, "w");
+         fprintf(
+            error_file, "fgets %s %d %s\n", exclude_path, error, strerror(error)
+         );
+         fclose(error_file);
          exit(6);
       }
 
@@ -231,6 +287,9 @@ static void load_excludes(const char *exclude_path) {
 
       if (exclude_count >= MAX_EXCLUDES) {
          syslog(LOG_ERR, "Too many excludes");
+         error_file = fopen(error_path, "w");
+         fprintf(error_file, "Too many excludes\n");
+         fclose(error_file);
          exit(7);
       }
 
@@ -248,6 +307,9 @@ static void load_excludes(const char *exclude_path) {
 
       if (NULL == excludes[exclude_count].path_p) {
          syslog(LOG_ERR, "calloc failed");
+         error_file = fopen(error_path, "w");
+         fprintf(error_file, "calloc failed\n");
+         fclose(error_file);
          exit(8);
       }
 
@@ -271,6 +333,11 @@ static void load_top_level_paths(const char *config_path) {
    if (NULL == config_file_p) {
       error = errno;
       syslog(LOG_ERR, "fopen %s %d %s", config_path, error, strerror(error));
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, "fopen %s %d %s\n", config_path, error, strerror(error)
+      );
+      fclose(error_file);
       exit(9);
    }
 
@@ -280,6 +347,11 @@ static void load_top_level_paths(const char *config_path) {
       if (ferror(config_file_p)) {
          error = errno;
          syslog(LOG_ERR, "fgets %s %d %s", config_path, error, strerror(error));
+         error_file = fopen(error_path, "w");
+         fprintf(
+            error_file, "fgets %s %d %s\n", config_path, error, strerror(error)
+         );
+         fclose(error_file);
          exit(10);
       }
 
@@ -319,6 +391,15 @@ static FILE * open_temp_file(void) {
          error, 
          strerror(error)
       );
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, 
+         "open(temp_file %s %d %s\n", 
+         temp_path_buffer, 
+         error, 
+         strerror(error)
+      );
+      fclose(error_file);
       exit(11);
    }
 
@@ -346,6 +427,13 @@ static void rename_temp_file(const char * notify_dir_p) {
          "notification path overflow %s", 
          notification_path_buffer
       );
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, 
+         "notification path overflow %s\n", 
+         notification_path_buffer
+      );
+      fclose(error_file);
       exit(12);
    }
 
@@ -359,6 +447,16 @@ static void rename_temp_file(const char * notify_dir_p) {
          error, 
          strerror(error)
       );
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, 
+         "rename(temp_file %s %s %d %s\n", 
+         temp_path_buffer, 
+         notification_path_buffer,
+         error, 
+         strerror(error)
+      );
+      fclose(error_file);
       exit(13);
    }
 
@@ -388,6 +486,13 @@ static int watch_new_directory(
          "new dir path overflow %s", 
          new_dir_path_buffer
       );
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, 
+         "new dir path overflow %s\n", 
+         new_dir_path_buffer
+      );
+      fclose(error_file);
       exit(14);
    }
 
@@ -414,6 +519,15 @@ static void remove_pruned_wds(WD_LIST_NODE_P wd_list_p) {
             error, 
             strerror(error)
          );
+         error_file = fopen(error_path, "w");
+         fprintf(
+            error_file, 
+            "inotify_rm_watch failed %d (%d) %s\n",
+            node_p->wd, 
+            error, 
+            strerror(error)
+         );
+         fclose(error_file);
          exit(15);
       } 
    }
@@ -440,6 +554,9 @@ static void prune_moved_directory(
    );
    if (chars_stored >= sizeof path_buffer) {
       syslog(LOG_ERR, "path buffer overlow %s", path_buffer);
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "path buffer overlow %s\n", path_buffer);
+      fclose(error_file);
       exit(4);
    }
 
@@ -447,6 +564,9 @@ static void prune_moved_directory(
 
    if (NULL_WD == moved_dir_wd) {
       syslog(LOG_ERR, "Unable to find moved dir wd");
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "Unable to find moved dir wd %s\n", path_buffer);
+      fclose(error_file);
       exit(-1);
    }
 
@@ -500,6 +620,9 @@ static void process_inotify_events(const char * notify_dir_p) {
 
       if (event_p->mask & IN_Q_OVERFLOW) {
          syslog(LOG_ERR, "Inotify queue overflow");
+         error_file = fopen(error_path, "w");
+         fprintf(error_file, "Inotify queue overflow\n");
+         fclose(error_file);
 
          // we abort because this means we have lost some events,
          // we need to force Monitor to make a ful pass
@@ -534,6 +657,11 @@ static void process_inotify_events(const char * notify_dir_p) {
          // this may not be valid so we check the cookie
          if (event_p->cookie == prev_cookie) {
             syslog(LOG_ERR, "cookie %d from IN_MOVED_TO present", prev_cookie);
+            error_file = fopen(error_path, "w");
+            fprintf(
+               error_file, "cookie %d from IN_MOVED_TO present\n", prev_cookie
+            );
+            fclose(error_file);
             exit(17);
          }
          prev_cookie = event_p->cookie;
@@ -576,6 +704,9 @@ static void process_inotify_events(const char * notify_dir_p) {
 
       if (NULL == parent_dir_p) {
          syslog(LOG_ERR, "Unable to find parent %05d", event_p->wd);
+         error_file = fopen(error_path, "w");
+         fprintf(error_file, "Unable to find parent %05d\n", event_p->wd);
+         fclose(error_file);
          exit(19);
       }
 
@@ -593,6 +724,15 @@ static void process_inotify_events(const char * notify_dir_p) {
             error, 
             strerror(error)
          );
+         error_file = fopen(error_path, "w");
+         fprintf(
+            error_file, 
+            "fprintf(temp_file %s %d %s\n", 
+            temp_path_buffer, 
+            error, 
+            strerror(error)
+         );
+         fclose(error_file);
          exit(20);
       }
 
@@ -633,9 +773,14 @@ int main(int argc, char **argv) {
    exclude_file_path    = argv[3];
    notification_path     = argv[4];
 
+   initialize_error_path(notification_path);
+
    if (signal(SIGTERM, sigterm_handler) == SIG_ERR) {
       error = errno;
       syslog(LOG_ERR, "signal(SIGTERM %d %s", error, strerror(error));
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "signal(SIGTERM %d %s\n", error, strerror(error));
+      fclose(error_file);
       exit(22);
    }
 
@@ -647,6 +792,9 @@ int main(int argc, char **argv) {
    if (-1 == inotify_fd) {
       error = errno;
       syslog(LOG_ERR, "inotify_init %d %s", error, strerror(error));
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "inotify_init %d %s\n", error, strerror(error));
+      fclose(error_file);
       exit(23);
    }
 
@@ -669,6 +817,9 @@ int main(int argc, char **argv) {
                alive = 0;
             } else {
                syslog(LOG_ERR, "poll %d %s", error, strerror(error));
+               error_file = fopen(error_path, "w");
+               fprintf(error_file, "poll %d %s\n", error, strerror(error));
+               fclose(error_file);
                exit(24);
             }
             break;

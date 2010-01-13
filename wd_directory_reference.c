@@ -8,6 +8,7 @@
 #include <syslog.h>
 
 #include "wd_directory.h"
+#include "error_text.h"
 
 #define ARRAY_SIZE_INCREMENT 1000
 
@@ -150,6 +151,9 @@ static WD_LIST_NODE_P find_children(int wd) {
 
          if (NULL == node_p) {
             syslog(LOG_ERR, "unable to calloc WD_LIST_NODE");
+            error_file = fopen(error_path, "w");
+            fprintf(error_file, "unable to calloc WD_LIST_NODE\n");
+            fclose(error_file);
             exit(-1);
          }
 
@@ -171,6 +175,9 @@ WD_LIST_NODE_P prune_wd_directory(int wd) {
    head_p = calloc(1, sizeof(struct WD_LIST_NODE));
    if (NULL == head_p) {
       syslog(LOG_ERR, "unable to calloc WD_LIST_NODE");
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "unable to calloc WD_LIST_NODE\n");
+      fclose(error_file);
       exit(-1);
    } 
    head_p->wd = wd;

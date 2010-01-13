@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <syslog.h>
 
+#include "error_text.h"
 #include "list_sub_dirs.h"
 
 static int error; // holder for errno
@@ -40,6 +41,15 @@ SUB_DIR_NODE_P list_sub_dirs(const char * path) {
          error, 
          strerror(error)
       );
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, 
+         "opendir %s %d %s\n", 
+         path, 
+         error, 
+         strerror(error)
+      );
+      fclose(error_file);
       exit(-1);
    }
 
@@ -59,6 +69,15 @@ SUB_DIR_NODE_P list_sub_dirs(const char * path) {
             error, 
             strerror(error)
          );
+         error_file = fopen(error_path, "w");
+         fprintf(
+            error_file, 
+            "readdir %s %d %s\n", 
+            path, 
+            error, 
+            strerror(error)
+         );
+         fclose(error_file);
          exit(-1);
       }
 
@@ -87,6 +106,9 @@ SUB_DIR_NODE_P list_sub_dirs(const char * path) {
 
          if (NULL == node_p) {
             syslog(LOG_ERR, "node_p is NULL");
+            error_file = fopen(error_path, "w");
+            fprintf(error_file, "node_p is NULL\n");
+            fclose(error_file);
             exit(-1);
          }
 

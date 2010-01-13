@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "iterate_inotify_events.h"
+#include "error_text.h"
 
 #define INOTIFY_EVENT_SIZE  (sizeof (struct inotify_event))
 #define INOTIFY_EVENT_BUFFER_LEN 64 * 1024
@@ -40,6 +41,9 @@ const struct inotify_event * start_iter_inotify(int inotify_fd) {
    if (-1 == bytes_read) {
       error = errno;
       syslog(LOG_ERR, "read(inotify_fd %d %s", error, strerror(error));
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "read(inotify_fd %d %s\n", error, strerror(error));
+      fclose(error_file);
       exit(-1);
    }
 
@@ -87,11 +91,20 @@ const struct inotify_event * next_iter_inotify(int inotify_fd) {
    if (((next_event_start_index+INOTIFY_EVENT_SIZE) > start_unused_buffer)) { 
       syslog(
          LOG_ERR, 
-         "invalid event structure (1) %d %d %d",
+         "invalid event structure (1) %d %lu %d",
          next_event_start_index,
          next_event_start_index+INOTIFY_EVENT_SIZE,
          start_unused_buffer
       );
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, 
+         "invalid event structure (1) %d %lu %d\n",
+         next_event_start_index,
+         next_event_start_index+INOTIFY_EVENT_SIZE,
+         start_unused_buffer
+      );
+      fclose(error_file);
       exit(-1);   
    }
 
@@ -109,7 +122,16 @@ const struct inotify_event * next_iter_inotify(int inotify_fd) {
          next_event_start_index+next_event_size,
          start_unused_buffer
       );
-      syslog(LOG_ERR, "invalid event strcuture (2)");
+      error_file = fopen(error_path, "w");
+      fprintf(
+         error_file, 
+         "invalid event structure (2) %d %d %d %d",
+         next_event_start_index,
+         next_event_size,
+         next_event_start_index+next_event_size,
+         start_unused_buffer
+      );
+      fclose(error_file);
       exit(-1);   
    }
 
