@@ -9,7 +9,7 @@
 
 #include <stdio.h>
 
-extern const char * error_path;
+extern char error_path[];
 
 extern FILE * error_file;
 
