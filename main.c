@@ -182,6 +182,15 @@ static int add_watch(int parent_wd, const char * path) {
          return -1;
       }
 
+      if (EACCES == error) {
+         syslog(
+            LOG_NOTICE, 
+            "inotify_add_watch ignoring directory (access denied) %s", 
+            path 
+         );
+         return -1;
+      }
+
       syslog(
          LOG_ERR, 
          "inotify_add_watch %s %d %s", 
