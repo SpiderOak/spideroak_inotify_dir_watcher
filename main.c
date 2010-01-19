@@ -25,7 +25,7 @@
    #define LOG_MASK_PRIORITY LOG_NOTICE
 #endif
 
-#define POLL_TIMEOUT 3
+#define POLL_TIMEOUT 1
 #define MAX_POLL_FDS 1
 #define MAX_EXCLUDES 64
 #define MAX_PATH_LEN 4096
@@ -839,7 +839,10 @@ int main(int argc, char **argv) {
             }
             break;
          default:
-            if (poll_fds[0].revents & POLLIN) {
+            if (1 == getppid()) {
+               syslog(LOG_NOTICE, "Parent process gone: stopping");
+               alive = 0;
+            } else if (poll_fds[0].revents & POLLIN) {
                process_inotify_events(notification_path);
             }
       } // switch
