@@ -34,6 +34,12 @@ SUB_DIR_NODE_P list_sub_dirs(const char * path) {
          return NULL;
       }
 
+      // don't abort if we stumble into something that's not a directory
+      if (ENOTDIR == error) {
+         syslog(LOG_NOTICE, "list_sub dirs: not a directory %s", path);
+         return NULL;
+      }
+
       syslog(
          LOG_ERR, 
          "opendir %s %d %s", 
