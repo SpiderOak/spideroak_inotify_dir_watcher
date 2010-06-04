@@ -36,7 +36,7 @@ FILE * error_file = NULL;
 static int alive = 1;
 static int error; // holder for errno
 static int inotify_fd = -1;
-static char temp_path_buffer[LINE_MAX];
+static char temp_path_buffer[MAX_PATH_LEN];
 static int notification_count = 0;
 static uint32_t watch_mask =
       IN_CLOSE_WRITE 
@@ -144,7 +144,7 @@ static int add_watch(int parent_wd, const char * path) {
    int watch_descriptor;
    SUB_DIR_NODE_P head_p;
    SUB_DIR_NODE_P node_p;
-   char path_buffer[LINE_MAX];
+   char path_buffer[MAX_PATH_LEN];
    int chars_stored;
 
    for (i=0; i < exclude_count; i++) {
@@ -259,7 +259,7 @@ static int add_watch(int parent_wd, const char * path) {
 static void load_excludes(const char *exclude_path) {
 //-----------------------------------------------------------------------------
    FILE * exclude_file_p;
-   char read_buffer[LINE_MAX];
+   char read_buffer[MAX_PATH_LEN];
    char * char_p;
 
    exclude_file_p = fopen(exclude_path, "r");
@@ -275,7 +275,7 @@ static void load_excludes(const char *exclude_path) {
    }
 
    while (1) {
-      fgets(read_buffer, LINE_MAX, exclude_file_p);
+      fgets(read_buffer, MAX_PATH_LEN, exclude_file_p);
 
       if (ferror(exclude_file_p)) {
          error = errno;
@@ -335,7 +335,7 @@ static void load_excludes(const char *exclude_path) {
 static void load_top_level_paths(const char *config_path) {
 //-----------------------------------------------------------------------------
    FILE * config_file_p;
-   char read_buffer[LINE_MAX];
+   char read_buffer[MAX_PATH_LEN];
    char * char_p;
 
    config_file_p = fopen(config_path, "r");
@@ -351,7 +351,7 @@ static void load_top_level_paths(const char *config_path) {
    }
 
    while (1) {
-      fgets(read_buffer, LINE_MAX, config_file_p);
+      fgets(read_buffer, MAX_PATH_LEN, config_file_p);
 
       if (ferror(config_file_p)) {
          error = errno;
@@ -419,7 +419,7 @@ static FILE * open_temp_file(void) {
 //-----------------------------------------------------------------------------
 static void rename_temp_file(const char * notify_dir_p) {
 //-----------------------------------------------------------------------------
-   char notification_path_buffer[LINE_MAX];
+   char notification_path_buffer[MAX_PATH_LEN];
    int bytes_written;
 
    notification_count++;
@@ -478,7 +478,7 @@ static int watch_new_directory(
    const char * name
 ) {
 //-----------------------------------------------------------------------------
-   char new_dir_path_buffer[LINE_MAX];
+   char new_dir_path_buffer[MAX_PATH_LEN];
    int bytes_written;
 
    bytes_written = snprintf(
@@ -549,7 +549,7 @@ static void prune_moved_directory(
    const char * dir_name_p
 ) {
 //-----------------------------------------------------------------------------
-   char path_buffer[LINE_MAX];
+   char path_buffer[MAX_PATH_LEN];
    WD_LIST_NODE_P wd_list_p;
    int chars_stored;
    int moved_dir_wd;
