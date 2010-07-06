@@ -14,6 +14,9 @@
 #include "error_text.h"
 
 static const char * database_path = "/tmp/spideroak_inotify_db";
+static const char * memory_database = ":memory:";
+static const char * use_memory_database = 
+   "SPIDEROAK_DIR_WATCHER_MEMORY_DATABASE";
 
 static const char * schema =
 "CREATE TABLE wd_directory ("
@@ -127,12 +130,25 @@ static sqlite3_stmt * prepare_sql_statement(const char * format_p, ...) {
 int wd_directory_initialize(void) {
 //-----------------------------------------------------------------------------
    int result;
+   const char * env_p;   
+   int use_memory = 0;
 
    if (0 == access(database_path, F_OK)) {
       unlink(database_path);
    }
 
-   result = sqlite3_open(database_path, &sqlite3_p);
+   env_p = getenv(use_memory_database);
+   if (NULL != env_p) {
+      use_memory = atoi(env_p);
+   }
+
+   if (use_memory) {
+      syslog(LOG_DEBUG, "Using sqlite3 memory database");
+      result = sqlite3_open(memory_database, &sqlite3_p);
+   } else {
+      result = sqlite3_open(database_path, &sqlite3_p);
+   }
+
    if (result != 0) {
       error_file = fopen(error_path, "w");
       fprintf(error_file, "sqlite3_open %s\n", sqlite3_errmsg(sqlite3_p));

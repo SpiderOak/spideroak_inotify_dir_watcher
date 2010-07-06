@@ -5,6 +5,8 @@ import os
 import subprocess
 import sys
 
+_memory_database = "SPIDEROAK_DIR_WATCHER_MEMORY_DATABASE"
+
 def main(executeable_path, config_path, exclude_path, notification_path):
     """launch a filesystem watcher"""
     print "parent pid =", os.getpid()
@@ -15,7 +17,11 @@ def main(executeable_path, config_path, exclude_path, notification_path):
         exclude_path,
 	    notification_path, 
     ]
-    process = subprocess.Popen(args)
+    environment = dict()
+    if _memory_database in os.environ:
+        environment[_memory_database] = os.environ[_memory_database]
+
+    process = subprocess.Popen(args, env=environment)
     print "process started pid =", process.pid
     process.wait()
     print "process terminates", process.returncode
