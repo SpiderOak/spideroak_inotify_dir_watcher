@@ -138,6 +138,54 @@ static void initialize_temp_path(const char * notify_dir_p) {
 } // initialize_temp_path
 
 //-----------------------------------------------------------------------------
+static void remove_pruned_wds(WD_LIST_NODE_P wd_list_p) {
+//-----------------------------------------------------------------------------
+   WD_LIST_NODE_P node_p;
+
+   for (node_p=wd_list_p; node_p != NULL; node_p=node_p->next_p) {
+      if (-1 == inotify_rm_watch(inotify_fd, node_p->wd)) {
+         error = errno;
+         if (EINVAL == error) {
+            // this one is already gone
+            continue;
+         }
+         syslog(
+            LOG_ERR, 
+            "inotify_rm_watch failed %d (%d) %s",
+            node_p->wd, 
+            error, 
+            strerror(error)
+         );
+         error_file = fopen(error_path, "w");
+         fprintf(
+            error_file, 
+            "inotify_rm_watch failed %d (%d) %s\n",
+            node_p->wd, 
+            error, 
+            strerror(error)
+         );
+         fclose(error_file);
+         exit(15);
+      } 
+   }
+
+} // remove_pruned_wds
+
+//-----------------------------------------------------------------------------
+static void prune_wd_and_clean_up(int wd) {
+//-----------------------------------------------------------------------------
+   WD_LIST_NODE_P wd_list_p;
+
+   // We prune the whole tree (if any) below this directory, because
+   // the paths are no longer right. We assume that we will build new 
+   // entries when we get IN_MOVED_TO
+   wd_list_p = prune_wd_directory(wd);
+   remove_pruned_wds(wd_list_p);
+   release_wd_list(wd_list_p);
+
+} // prune_wd_and_clean_up
+
+//-----------------------------------------------------------------------------
 static int add_watch(int parent_wd, const char * path) {
 //-----------------------------------------------------------------------------
    int i;
@@ -208,6 +256,19 @@ static int add_watch(int parent_wd, const char * path) {
       );
       fclose(error_file);
       exit(2);
+   }
+
+   // 2020-07-06 dougfort -- In some cases, such as a top level directory 
+   // being moved, we may already have a watch on the old directory.
+   // In this case, inotify_add_watch returns the existing wd, which we
+   // want to get rid of.
+   if (wd_directory_exists(watch_descriptor)) {
+      syslog(
+         LOG_WARNING, "wd exists for new watch, pruning it %d, %s", 
+         watch_descriptor,
+         path
+      );
+      prune_wd_and_clean_up(watch_descriptor);
    }
 
    if (0 != add_wd_directory(watch_descriptor, parent_wd, path)) {
@@ -510,47 +571,12 @@ static int watch_new_directory(
 } // watch_new_directory
 
 //-----------------------------------------------------------------------------
-static void remove_pruned_wds(WD_LIST_NODE_P wd_list_p) {
-//-----------------------------------------------------------------------------
-   WD_LIST_NODE_P node_p;
-
-   for (node_p=wd_list_p; node_p != NULL; node_p=node_p->next_p) {
-      if (-1 == inotify_rm_watch(inotify_fd, node_p->wd)) {
-         error = errno;
-         if (EINVAL == error) {
-            // this one is already gone
-            continue;
-         }
-         syslog(
-            LOG_ERR, 
-            "inotify_rm_watch failed %d (%d) %s",
-            node_p->wd, 
-            error, 
-            strerror(error)
-         );
-         error_file = fopen(error_path, "w");
-         fprintf(
-            error_file, 
-            "inotify_rm_watch failed %d (%d) %s\n",
-            node_p->wd, 
-            error, 
-            strerror(error)
-         );
-         fclose(error_file);
-         exit(15);
-      } 
-   }
-
-} // remove_prunced_wds
-
-//-----------------------------------------------------------------------------
 static void prune_moved_directory(
    const char * parent_dir_p, 
    const char * dir_name_p
 ) {
 //-----------------------------------------------------------------------------
    char path_buffer[MAX_PATH_LEN];
-   WD_LIST_NODE_P wd_list_p;
    int chars_stored;
    int moved_dir_wd;
 
@@ -579,12 +605,7 @@ static void prune_moved_directory(
       exit(-1);
    }
 
-   // We prune the whole tree (if any) below this directory, because
-   // the paths are no longer right. We assume that we will build new 
-   // entries when we get IN_MOVED_TO
-   wd_list_p = prune_wd_directory(moved_dir_wd);
-   remove_pruned_wds(wd_list_p);
-   release_wd_list(wd_list_p);
+   prune_wd_and_clean_up(moved_dir_wd);
 
 } // prune_moved_directory
 
@@ -688,9 +709,11 @@ static void process_inotify_events(const char * notify_dir_p) {
          if (event_p->cookie != prev_cookie) {
             syslog(
                LOG_NOTICE, 
-               "cookie %d from IN_MOVED_FROM absent %d",
+               "cookie %d from IN_MOVED_FROM absent %d %s %s",
                event_p->cookie, 
-               prev_cookie
+               prev_cookie,
+               parent_dir_p,
+               event_p->name
             );
          }
          prev_cookie = event_p->cookie;
@@ -712,9 +735,25 @@ static void process_inotify_events(const char * notify_dir_p) {
       }      
 
       if (NULL == parent_dir_p) {
-         syslog(LOG_ERR, "Unable to find parent %05d", event_p->wd);
+         syslog(
+            LOG_ERR, 
+            "unable to find parent %05d event 0x%08X %s %d at %s",
+            event_p->wd, 
+            event_p->mask,
+            event_name(event_p->mask),
+            event_p->cookie,
+            event_p->len > 0 ? event_p->name : "*noname*" 
+         );
          error_file = fopen(error_path, "w");
-         fprintf(error_file, "Unable to find parent %05d\n", event_p->wd);
+         fprintf(
+            error_file, 
+            "unable to find parent %05d event 0x%08X %s %d at %s",
+            event_p->wd, 
+            event_p->mask,
+            event_name(event_p->mask),
+            event_p->cookie,
+            event_p->len > 0 ? event_p->name : "*noname*" 
+         );
          fclose(error_file);
          exit(19);
       }

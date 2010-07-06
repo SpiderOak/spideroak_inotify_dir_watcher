@@ -30,6 +30,11 @@ void wd_directory_close(void);
 int add_wd_directory(int wd, int parent_wd, const char * path_p);
 
 // find the directory associated with a watch descriptor
+// returns 0 for no directory, nonzero if we already have
+// a directory for this watch descriptor
+int wd_directory_exists(int wd);
+
+// find the directory associated with a watch descriptor
 // returns NULL for failure, dest_p for success
 // The caller is responsible for allocating memory for the string,
 // this module will strncpy up to max_len characters to dest_p

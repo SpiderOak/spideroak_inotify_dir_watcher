@@ -162,6 +162,38 @@ int add_wd_directory(int wd, int parent_wd, const char * path_p) {
 } // add_wd_directory
 
 //-----------------------------------------------------------------------------
+int wd_directory_exists(int wd) {
+//-----------------------------------------------------------------------------
+   int result;
+   sqlite3_stmt * statement_p;
+   int ret_val = 0;
+
+   statement_p = prepare_sql_statement(fetch_path, wd);
+
+   result = sqlite3_step(statement_p);
+   switch (result) {
+      case SQLITE_DONE:
+         ret_val = 0;
+         break;
+      case SQLITE_ROW:
+         ret_val = 1;
+         break;
+      default:
+         error_file = fopen(error_path, "w");
+         fprintf(error_file, "sqlite3_step %s\n", sqlite3_errmsg(sqlite3_p));
+         fclose(error_file);
+         syslog( LOG_ERR, "sqlite3_step %s", sqlite3_errmsg(sqlite3_p));
+         sqlite3_close(sqlite3_p);
+         exit(-1);
+   } // switch
+
+   sqlite3_finalize(statement_p);
+
+   return ret_val;
+
+} // wd_directory_exists
+
+//-----------------------------------------------------------------------------
 const char * find_wd_directory(int wd, char * dest_p, size_t max_len) {
 //-----------------------------------------------------------------------------
    int result;
