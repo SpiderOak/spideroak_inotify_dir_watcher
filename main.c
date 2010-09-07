@@ -14,6 +14,8 @@
 #include <sys/poll.h>
 #include <unistd.h>
 #include <syslog.h>
+#include <sys/stat.h>
+
 
 #include "iterate_inotify_events.h"
 #include "list_sub_dirs.h"
@@ -807,6 +809,8 @@ int main(int argc, char **argv) {
    const char * config_file_path;
    const char * exclude_file_path;
    const char * notification_path;
+
+   umask(0077);
 
    openlog("spideroak_inotify", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_USER);
 

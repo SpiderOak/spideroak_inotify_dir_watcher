@@ -3,6 +3,7 @@
 //
 // connect inotify watch descriptor (wd) to the directory it is watching
 //-----------------------------------------------------------------------------
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
@@ -13,7 +14,8 @@
 #include "wd_directory.h"
 #include "error_text.h"
 
-static const char * database_path = "/tmp/spideroak_inotify_db";
+static int error; // holder for errno
+
 static const char * memory_database = ":memory:";
 static const char * use_memory_database = 
    "SPIDEROAK_DIR_WATCHER_MEMORY_DATABASE";
@@ -132,10 +134,8 @@ int wd_directory_initialize(void) {
    int result;
    const char * env_p;   
    int use_memory = 0;
-
-   if (0 == access(database_path, F_OK)) {
-      unlink(database_path);
-   }
+   char database_path [] = "/tmp/spideroak_inotify_db.XXXXXX";
+   int fd;
 
    env_p = getenv(use_memory_database);
    if (NULL != env_p) {
@@ -146,6 +146,20 @@ int wd_directory_initialize(void) {
       syslog(LOG_DEBUG, "Using sqlite3 memory database");
       result = sqlite3_open(memory_database, &sqlite3_p);
    } else {
+      fd = mkstemp(database_path);
+      if (-1 == fd) {
+         error = errno;
+         error_file = fopen(error_path, "w");
+         fprintf(
+            error_file, "mkstemp failed (%d) %s\n", error, strerror(error)
+         );
+         fclose(error_file);
+         syslog(
+            LOG_ERR, "mkstemp failed (%d) %s", error, strerror(error)
+         );
+         exit(-1);
+      }
+      close(fd);
       result = sqlite3_open(database_path, &sqlite3_p);
    }
 
