@@ -30,6 +30,12 @@ static const char * schema =
 "CREATE INDEX wd_directory_parent ON wd_directory(parent_wd);"
 ;
 
+static const char * journal_off =
+"PRAGMA journal_mode = OFF;";
+
+static const char * sync_off =
+"PRAGMA synchronous = 0;";
+
 static const char * add_entry =
 "INSERT INTO wd_directory VALUES(%i, %i, %Q);";
 
@@ -172,6 +178,8 @@ int wd_directory_initialize(void) {
       exit(-1);
    }
 
+   execute_sql(journal_off); 
+   execute_sql(sync_off); 
    execute_sql(schema); 
 
    return 0;
