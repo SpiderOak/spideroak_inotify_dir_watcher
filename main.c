@@ -599,15 +599,12 @@ static void prune_moved_directory(
 
    moved_dir_wd = find_directory_wd(path_buffer);
 
-   if (NULL_WD == moved_dir_wd) {
-      syslog(LOG_ERR, "Unable to find moved dir wd");
-      error_file = fopen(error_path, "w");
-      fprintf(error_file, "Unable to find moved dir wd %s\n", path_buffer);
-      fclose(error_file);
-      exit(-1);
+   // 2010-09-14 dougfort -- don't treat not finding the wd as an error
+   // We assume that the directory was created and then renamed before
+   // we had a chance to create watch descriptors.
+   if (NULL_WD != moved_dir_wd) {
+      prune_wd_and_clean_up(moved_dir_wd);
    }
-
-   prune_wd_and_clean_up(moved_dir_wd);
 
 } // prune_moved_directory
 
