@@ -15,7 +15,8 @@
 #include <unistd.h>
 #include <syslog.h>
 #include <sys/stat.h>
-
+#include <sys/time.h>
+#include "hash_cache.h"
 
 #include "iterate_inotify_events.h"
 #include "list_sub_dirs.h"
@@ -32,10 +33,14 @@
 #define MAX_EXCLUDES 64
 #define MAX_PATH_LEN 4096
 
+#define HASH_TABLE_SIZE 100
+#define HASH_TABLE_MEMORY_SIZE 15000
+
 char error_path[MAX_PATH_LEN+1];
 FILE * error_file = NULL;
 
 static int alive = 1;
+static int flush_now;
 static int error; // holder for errno
 static int inotify_fd = -1;
 static char temp_path_buffer[MAX_PATH_LEN];
@@ -76,6 +81,9 @@ static int exclude_count = 0;
 static uint32_t prev_cookie = 0;
 static char parent_path_buffer[MAX_PATH_LEN+1];
 
+static const char dir_watcher_ignore[] = "__dir_watcher_ignore";
+static hash_cache * hc;
+
 //-----------------------------------------------------------------------------
 static void sigterm_handler(int signal_num) {
 //-----------------------------------------------------------------------------
@@ -83,6 +91,14 @@ static void sigterm_handler(int signal_num) {
       alive = 0;
    }
 } // sigterm_handler
+
+//-----------------------------------------------------------------------------
+static void sigalrm_handler(int signal_num) {
+//-----------------------------------------------------------------------------
+   if (SIGALRM == signal_num) {
+      flush_now = 1;
+   }
+} // sigalrm_handler
 
 //-----------------------------------------------------------------------------
 static const char * event_name(uint32_t event_mask) {
@@ -196,16 +212,27 @@ static int add_watch(int parent_wd, const char * path) {
    SUB_DIR_NODE_P node_p;
    char path_buffer[MAX_PATH_LEN];
    int chars_stored;
+   int pathlen;
 
    for (i=0; i < exclude_count; i++) {
       if (0 == strncmp(path, excludes[i].path_p, excludes[i].path_len)) {
-         syslog(
-            LOG_NOTICE, 
-            "excluding path %s (%s)",
-            path,
-            excludes[i].path_p
-         );
-         return -1; 
+         if((path[excludes[i].path_len]=='\0') || (path[excludes[i].path_len]=='/')) {
+            syslog(
+               LOG_NOTICE, 
+               "excluding path %s (%s)",
+               path,
+               excludes[i].path_p
+            );
+            return -1; 
+         }
+      }
+   }
+
+   pathlen = strlen(path);
+   if(pathlen >= sizeof(dir_watcher_ignore) - 1) {
+      if (strcmp(path + pathlen - sizeof(dir_watcher_ignore) + 1, dir_watcher_ignore) == 0) {
+         syslog(LOG_NOTICE, "ignoring path %s", path);
+         return -1;
       }
    }
 
@@ -609,15 +636,63 @@ static void prune_moved_directory(
 } // prune_moved_directory
 
 //-----------------------------------------------------------------------------
+static void flush_hash_cache(const char * notify_dir_p, const char * parent_dir_p) {
+//-----------------------------------------------------------------------------
+   FILE * temp_file_p;
+   unsigned int pos;
+   unsigned int count;
+   unsigned int datalen;
+   char * str;
+   
+
+   temp_file_p = NULL;
+
+   if(parent_dir_p != NULL) {
+      temp_file_p = open_temp_file();
+      fprintf(temp_file_p, "%s\n", parent_dir_p);
+   }
+   for(pos = 0; (pos = hash_cache_iter(hc, pos, &count, (void**)&str, &datalen))!=0;) {
+      if(temp_file_p == NULL) {
+          temp_file_p = open_temp_file();
+      }
+      fprintf(temp_file_p, "%s\n", str);
+      if (ferror(temp_file_p)) {
+      error = errno;
+         syslog(
+            LOG_ERR, 
+            "fprintf(temp_file %s %d %s", 
+            temp_path_buffer, 
+            error, 
+            strerror(error)
+         );
+         error_file = fopen(error_path, "w");
+         fprintf(
+            error_file, 
+            "fprintf(temp_file %s %d %s\n", 
+            temp_path_buffer, 
+            error, 
+            strerror(error)
+         );
+         fclose(error_file);
+         exit(20);
+      }
+   }
+   hash_cache_clear(hc);
+   if (temp_file_p != NULL) {
+      fclose(temp_file_p);
+      rename_temp_file(notify_dir_p);
+   }
+}
+
+
+//-----------------------------------------------------------------------------
 static void process_inotify_events(const char * notify_dir_p) {
 //-----------------------------------------------------------------------------
    const struct inotify_event * event_p;
    const char * parent_dir_p;
-   FILE * temp_file_p;
    int prev_wd;
 
    parent_dir_p = NULL;
-   temp_file_p = NULL;
    prev_wd = NULL_WD;
    for (
       event_p=start_iter_inotify(inotify_fd); 
@@ -731,7 +806,13 @@ static void process_inotify_events(const char * notify_dir_p) {
          remove_wd_directory(event_p->wd);
 
          continue;
-      }      
+      } else if (event_p->mask & IN_CREATE) {
+         // We can ignore the creation of files, because we'll see when
+         // they are closed later. This prevents us from backing up a
+         // non-finished download and then later (when the file is closed)
+         // the rest of the file.
+         continue;
+      }
 
       if (NULL == parent_dir_p) {
          syslog(
@@ -743,52 +824,24 @@ static void process_inotify_events(const char * notify_dir_p) {
             event_p->cookie,
             event_p->len > 0 ? event_p->name : "*noname*" 
          );
-         error_file = fopen(error_path, "w");
-         fprintf(
-            error_file, 
-            "unable to find parent %05d event 0x%08X %s %d at %s",
-            event_p->wd, 
-            event_p->mask,
-            event_name(event_p->mask),
-            event_p->cookie,
-            event_p->len > 0 ? event_p->name : "*noname*" 
-         );
-         fclose(error_file);
-         exit(19);
+         // Let's ignore this. This might have happend:
+         // Latency: 
+         // mkdir temp ; mv old_dir temp/new_dir 
+         // rmdir temp/new_dir ; rmdir temp
+         // -> now we start working:
+         //    * we observe the creation of "temp", but there is no "temp",
+         //      so we don't create a watcher
+         //    * Then we observe the move of "new_dir" but the parent in not
+         //      in our database
+         // This happens when firefox clears its caches.
+         continue;
       }
 
-      if (NULL == temp_file_p) {
-         temp_file_p = open_temp_file();
-      } 
-
-      fprintf(temp_file_p, "%s\n", parent_dir_p);
-      if (ferror(temp_file_p)) {
-         error = errno;
-         syslog(
-            LOG_ERR, 
-            "fprintf(temp_file %s %d %s", 
-            temp_path_buffer, 
-            error, 
-            strerror(error)
-         );
-         error_file = fopen(error_path, "w");
-         fprintf(
-            error_file, 
-            "fprintf(temp_file %s %d %s\n", 
-            temp_path_buffer, 
-            error, 
-            strerror(error)
-         );
-         fclose(error_file);
-         exit(20);
+      if(0 == hash_cache_add(hc, (void*)parent_dir_p, strlen(parent_dir_p)+1)) {
+         flush_hash_cache(notify_dir_p, parent_dir_p);
       }
 
    } // for
-
-   if (temp_file_p != NULL) {
-      fclose(temp_file_p);
-      rename_temp_file(notify_dir_p);
-   }
 
 } // process_inotify_events
 
@@ -803,10 +856,12 @@ int main(int argc, char **argv) {
    struct pollfd poll_fds[MAX_POLL_FDS];
    int poll_fd_count;
    int poll_result;
+   int parent_pid;
    const char * config_file_path;
    const char * exclude_file_path;
    const char * notification_path;
-
+   struct itimerval timer;
+ 
    umask(0077);
 
    openlog("spideroak_inotify", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_USER);
@@ -818,6 +873,7 @@ int main(int argc, char **argv) {
       syslog(LOG_ERR, "Invalid number of arguments %d, expected %d", argc, 5 );
       exit(21);      
    }
+   parent_pid           = atoi(argv[1]);
    config_file_path     = argv[2];
    exclude_file_path    = argv[3];
    notification_path     = argv[4];
@@ -832,6 +888,31 @@ int main(int argc, char **argv) {
       fclose(error_file);
       exit(22);
    }
+
+   if (signal(SIGALRM, sigalrm_handler) == SIG_ERR) {
+      error = errno;
+      syslog(LOG_ERR, "signal(SIGALRM %d %s", error, strerror(error));
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "signal(SIGLRM %d %s\n", error, strerror(error));
+      fclose(error_file);
+      exit(25);
+   }
+
+   hc = new_hash_cache(HASH_TABLE_SIZE,HASH_TABLE_MEMORY_SIZE);
+   if(hc == NULL) {
+      syslog(LOG_ERR, "hash_cache init error");
+      error_file = fopen(error_path, "w");
+      fprintf(error_file, "hash_cache init error");
+      fclose(error_file);
+      exit(26);
+   }
+
+   timer.it_interval.tv_usec = 0;
+   timer.it_interval.tv_sec = 3;
+   timer.it_value.tv_usec = 0;
+   timer.it_value.tv_sec = 3;
+   flush_now = 0;
+   setitimer(ITIMER_REAL,&timer,NULL);
 
    wd_directory_initialize();
 
@@ -858,13 +939,19 @@ int main(int argc, char **argv) {
    while (alive) {
       poll_result = poll(poll_fds, poll_fd_count, POLL_TIMEOUT * 1000);
 
+      if (parent_pid != getppid()) {
+          syslog(LOG_NOTICE, "Parent process gone: stopping");
+          alive = 0;
+      }
+      if(flush_now) {
+          flush_now = 0;
+          flush_hash_cache(notification_path, NULL);
+      }
+
       switch (poll_result) {
          case -1: // error
             error = errno;
-            if (EINTR == error) {
-               syslog(LOG_NOTICE, "poll interrupted, assuming SIGTERM");
-               alive = 0;
-            } else {
+            if (EINTR != error) {
                syslog(LOG_ERR, "poll %d %s", error, strerror(error));
                error_file = fopen(error_path, "w");
                fprintf(error_file, "poll %d %s\n", error, strerror(error));
@@ -873,16 +960,9 @@ int main(int argc, char **argv) {
             }
             break;
          case 0: // timeout
-            if (1 == getppid()) {
-               syslog(LOG_NOTICE, "Parent process gone: stopping");
-               alive = 0;
-            }
             break;
          default:
-            if (1 == getppid()) {
-               syslog(LOG_NOTICE, "Parent process gone: stopping");
-               alive = 0;
-            } else if (poll_fds[0].revents & POLLIN) {
+            if (alive && (poll_fds[0].revents & POLLIN)) {
                process_inotify_events(notification_path);
             }
       } // switch
